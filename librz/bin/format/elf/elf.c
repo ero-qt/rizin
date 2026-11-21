@@ -410,6 +410,7 @@ void Elf_(rz_bin_elf_free)(RZ_NULLABLE ELFOBJ *bin) {
 
 	rz_buf_free(bin->b);
 	rz_buf_free(bin->buf_patched);
+	ht_uu_free(bin->got_sym_offsets);
 
 	sdb_free(bin->kv);
 

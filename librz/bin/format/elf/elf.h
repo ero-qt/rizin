@@ -216,6 +216,7 @@ struct Elf_(rz_bin_elf_obj_t) {
 
 	RzBuffer *buf_patched; ///< overlay over the original file with relocs patched
 	bool relocs_patched;
+	HtUU *got_sym_offsets; ///< lazy index: reloc sym id -> offset of its GOT entry
 	ut64 reloc_targets_map_base;
 
 	Sdb *kv;
