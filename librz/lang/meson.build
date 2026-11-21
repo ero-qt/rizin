@@ -9,6 +9,7 @@ if host_machine.system() != 'windows'
   ]
 endif
 
+lang_plugins_list = []
 lang_plugins = {
   'base_name': 'rz_lang',
   'base_struct': 'RzLangPlugin',

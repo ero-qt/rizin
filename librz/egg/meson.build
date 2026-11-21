@@ -3,6 +3,7 @@ egg_plugins_list = [
   'xor',
 ]
 
+egg_plugins_list = []
 egg_plugins = {
   'base_name': 'rz_egg',
   'base_struct': 'RzEggPlugin',
@@ -17,8 +18,6 @@ rz_egg_sources = [
   'emit/trace.c',
   'emit/x64.c',
   'emit/x86.c',
-  'p/egg_exec.c',
-  'p/egg_xor.c'
 ]
 
 rz_egg = library('rz_egg', rz_egg_sources,

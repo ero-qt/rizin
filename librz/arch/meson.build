@@ -65,63 +65,8 @@ arch_plugins_list = [
 ]
 
 arch_plugin_sources = [
-  'p/arch_6502.c',
-  'p/arch_8051.c',
-  'p/arch_amd29k.c',
-  'p/arch_arm_as.c',
   'p/arch_arm_cs.c',
-  'p/arch_avr.c',
-  'p/arch_bf.c',
-  'p/arch_c166.c',
-  'p/arch_chip8.c',
-  'p/arch_cil.c',
-  'p/arch_cr16.c',
-  'p/arch_dalvik.c',
-  'p/arch_dcpu16.c',
-  'p/arch_ebc.c',
-  'p/arch_gb.c',
-  'p/arch_h8300.c',
-  'p/arch_h8500.c',
-  'p/arch_hexagon.c',
-  'p/arch_i4004.c',
-  'p/arch_i8080.c',
-  'p/arch_java.c',
-  'p/arch_lh5801.c',
-  'p/arch_lm32.c',
-  'p/arch_luac.c',
-  'p/arch_m680x_cs.c',
-  'p/arch_m68k_cs.c',
-  'p/arch_malbolge.c',
-  'p/arch_mcore.c',
-  'p/arch_mcs96.c',
-  'p/arch_milstd1750.c',
-  'p/arch_mips_cs.c',
-  'p/arch_msp430.c',
   'p/arch_null.c',
-  'p/arch_or1k.c',
-  'p/arch_pic.c',
-  'p/arch_ppc_as.c',
-  'p/arch_ppc_cs.c',
-  'p/arch_propeller.c',
-  'p/arch_pyc.c',
-  'p/arch_rl78.c',
-  'p/arch_rsp.c',
-  'p/arch_rx.c',
-  'p/arch_sh.c',
-  'p/arch_snes.c',
-  'p/arch_sparc_cs.c',
-  'p/arch_spc700.c',
-  'p/arch_sysz.c',
-  'p/arch_tms320.c',
-  'p/arch_v810.c',
-  'p/arch_v850.c',
-  'p/arch_vax.c',
-  'p/arch_wasm.c',
-  'p/arch_x86_as.c',
-  'p/arch_x86_nasm.c',
-  'p/arch_x86_nz.c',
-  'p/arch_xap.c',
-  'p/arch_xcore_cs.c',
   'p/arch_x86_zydis.c',
 ]
 
@@ -352,8 +297,6 @@ if capstone_dep.version() == 'next' or capstone_dep.version().split('.')[0].to_i
 
   # plugins sources
   arch_plugin_sources += [
-    'p/arch_cbpf_cs.c',
-    'p/arch_riscv_cs.c',
   ]
 endif
 
@@ -365,7 +308,6 @@ if capstone_dep.version() == 'next' or capstone_dep.version().split('.')[0].to_i
 
   # plugins sources
   arch_plugin_sources += [
-    'p/arch_tricore_cs.c',
   ]
 
   # isa sources
@@ -385,10 +327,6 @@ if capstone_dep.version() == 'next'
 
   # plugins sources
   arch_plugin_sources += [
-    'p/arch_alpha.c',
-    'p/arch_loongarch_cs.c',
-    'p/arch_hppa_cs.c',
-    'p/arch_xtensa_cs.c',
   ]
 
   # isa sources
@@ -488,6 +426,7 @@ arch_common_includes = [
   '.',
 ]
 
+arch_plugins_list = ['null', 'x86_zydis', 'arm_cs']
 arch_plugins = {
   'base_name': 'rz_arch',
   'base_struct': 'RzArchPlugin',

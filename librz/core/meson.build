@@ -3,6 +3,7 @@ core_plugins_list = [
   'dex',
 ]
 
+core_plugins_list = []
 core_plugins = {
   'base_name': 'rz_core',
   'base_struct': 'RzCorePlugin',
@@ -71,8 +72,6 @@ rz_core_sources = [
   'serialize_core.c',
   'task.c',
   'yank.c',
-  'p/core_dex.c',
-  'p/core_java.c',
   cmd_descs_ch,
   'cmd/cmd.c',
   'cmd/cmd_alias.c',

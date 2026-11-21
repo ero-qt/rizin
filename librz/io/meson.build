@@ -37,6 +37,7 @@ if host_machine.system() == 'windows'
   ]
 endif
 
+io_plugins_list = ['default', 'fd', 'malloc', 'null', 'sparse']
 io_plugins = {
   'base_name': 'rz_io',
   'base_struct': 'RzIOPlugin',
@@ -55,37 +56,15 @@ rz_io_sources = [
   'ioutils.c',
   'p_cache.c',
   'serialize_io.c',
-  'p/io_ar.c',
   'p/io_fd.c',
-  'p/io_bochs.c',
-  'p/io_debug.c',
-  'p/io_dmp.c',
   'p/io_default.c',
-  'p/io_gdb.c',
-  'p/io_gzip.c',
-  'p/io_http.c',
-  'p/io_ihex.c',
-  'p/io_mach.c',
   'p/io_malloc.c',
   'p/io_null.c',
-  'p/io_procpid.c',
-  'p/io_ptrace.c',
-  'p/io_self.c',
-  'p/io_shm.c',
   'p/io_sparse.c',
-  'p/io_srec.c',
-  'p/io_tcp.c',
-  'p/io_winkd.c',
-  'p/io_winedbg.c',
-  'p/io_zip.c',
-  'p/io_titxt.c',
 ]
 
 if host_machine.system() == 'windows'
   rz_io_sources += [
-    'p/io_windbg.c',
-    'p/io_w32.c',
-    'p/io_w32dbg.c',
   ]
 endif
 
