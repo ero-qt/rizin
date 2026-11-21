@@ -1,0 +1,15 @@
+diff --git a/src/cplusplus/v3/v3.c b/src/cplusplus/v3/v3.c
+index 7f01754..00d4eb7 100644
+--- a/src/cplusplus/v3/v3.c
++++ b/src/cplusplus/v3/v3.c
+@@ -560,7 +560,9 @@ static bool node_base_name(NodeRef node, DemStringView *out) {
+ 	case CP_DEM_TYPE_KIND_PRIMITIVE_TY:
+ 		return sv_form_cstr(out, node->primitive_ty.name.buf);
+ 	default:
+-		return node_base_name(node, out);
++		// Returns false, because a call of node_base_name() with the same node never
++		// returns. The compiler turns that recursion into an endless loop.
++		return false;
+ 	}
+ 	return false;
+ }

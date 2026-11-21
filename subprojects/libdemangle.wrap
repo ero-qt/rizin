@@ -2,3 +2,4 @@
 url = https://github.com/rizinorg/rz-libdemangle.git
 revision = e633061e901208a20ed90f8aaf0b64f25caf73eb
 depth = 1
+diff_files = libdemangle-base-name-loop.diff
