@@ -319,8 +319,13 @@ RZ_API RZ_BORROW RzBinClass *rz_bin_object_add_class(RZ_NONNULL RzBinObject *o, 
 		return NULL;
 	}
 
-	rz_pvector_push(o->classes, oclass);
-	rz_pvector_sort(o->classes, (RzPVectorComparator)bin_compare_class, NULL);
+	// Inserts at the lower bound to keep o->classes sorted, because sorting the
+	// whole vector again for each new class takes quadratic time for large C++ binaries.
+	size_t idx;
+#define CLASS_CMP(x, y) rz_bin_compare_class((RzBinClass *)(x), (RzBinClass *)(y))
+	rz_pvector_lower_bound(o->classes, oclass, idx, CLASS_CMP);
+#undef CLASS_CMP
+	rz_pvector_insert(o->classes, idx, oclass);
 	ht_sp_insert(o->name_to_class_object, name, oclass);
 	return oclass;
 }
