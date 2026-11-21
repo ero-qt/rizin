@@ -2,3 +2,4 @@
 url = https://github.com/rizinorg/rz-libdemangle.git
 revision = 4a0af6896daf4122cc9a02c3f58a7768f4e27b2d
 depth = 1
+diff_files = libdemangle-emscripten.diff

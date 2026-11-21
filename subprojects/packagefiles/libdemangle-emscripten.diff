@@ -1,0 +1,50 @@
+Ports the changes that rzwasi (https://github.com/IndAlok/rzwasi, LGPL-3.0-only) makes to the libzip and libdemangle
+subprojects for its WebAssembly build to Rizin 0.9.1.
+
+diff --git a/meson.build b/meson.build
+index 6b3a253..8366bfb 100644
+--- a/meson.build
++++ b/meson.build
+@@ -79,7 +79,7 @@ elif cc.has_argument('--std=c99')
+     add_project_arguments('--std=c99', language : 'c')
+ endif
+ 
+-libdemangle = both_libraries(
++libdemangle = static_library(
+     'demangle',
+     libdemangle_src,
+     c_args : common_c_args + libdemangle_c_args,
+@@ -92,12 +92,12 @@ libdemangle = both_libraries(
+ # When used as a subproject with default_library=static (e.g., Rizin),
+ # prefer the static library. Otherwise, use the shared library by default.
+ if get_option('default_library') == 'static'
+-    libdemangle_link = libdemangle.get_static_lib()
++    libdemangle_link = libdemangle
+ elif get_option('default_library') == 'shared'
+-    libdemangle_link = libdemangle.get_shared_lib()
++    libdemangle_link = libdemangle
+ else
+     # For 'both', prefer static for better compatibility as a subproject
+-    libdemangle_link = libdemangle.get_static_lib()
++    libdemangle_link = libdemangle
+ endif
+ 
+ libdemangle_dep = declare_dependency(
+@@ -185,7 +185,7 @@ if get_option('enable_tests') and not meson.is_subproject()
+         exe = executable(
+             'test_@0@'.format(test),
+             'test/test_@0@.c'.format(test),
+-            link_whole : libdemangle.get_static_lib(),
++            link_whole : libdemangle,
+             include_directories : include_directories(['include', 'test', 'src']),
+             dependencies : test_dependencies,
+             c_args : test_c_args,
+@@ -203,7 +203,7 @@ if get_option('enable_tests') and not meson.is_subproject()
+         exe = executable(
+             'test_@0@'.format(test),
+             'test/unit/test_@0@.c'.format(test),
+-            link_whole : libdemangle.get_static_lib(),
++            link_whole : libdemangle,
+             include_directories : include_directories(['include', 'test', 'src']),
+             dependencies : test_dependencies,
+             c_args : common_c_args,
