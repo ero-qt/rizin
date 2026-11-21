@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: 2009-2020 pancake <pancake@nopcode.org>
 // SPDX-License-Identifier: LGPL-3.0-only
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <rz_util.h>
 #include <rz_userconf.h>
 #include <stdlib.h>
@@ -50,7 +54,7 @@ static char **env = NULL;
 #include <sys/sysctl.h>
 #endif /* defined(__FreeBSD__) || defined(__DragonFly__) */
 
-#if HAVE_BACKTRACE
+#if HAVE_BACKTRACE && !defined(__EMSCRIPTEN__)
 #include <execinfo.h>
 #endif /* HAVE_BACKTRACE */
 
@@ -331,7 +335,7 @@ RZ_API char *rz_sys_cmd_strf(const char *fmt, ...) {
  * \brief Print the backtrace at the point this function is called from.
  */
 RZ_API void rz_sys_backtrace(void) {
-#if HAVE_BACKTRACE
+#if HAVE_BACKTRACE && !defined(__EMSCRIPTEN__)
 	void *array[10];
 	size_t size = backtrace(array, 10);
 	eprintf("Backtrace %zd stack frames.\n", size);
@@ -402,6 +406,12 @@ RZ_API void rz_sys_backtrace(void) {
 
 	free(buffer);
 	SymCleanup(process);
+#elif defined(__EMSCRIPTEN__)
+	char buf[1024];
+	int len = emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_JS_STACK, buf, sizeof(buf));
+	if (len > 0) {
+		eprintf("%s\n", buf);
+	}
 #else
 #warning TODO: rz_sys_backtrace : unimplemented
 #endif

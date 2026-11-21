@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: 2008-2020 Jody Frankowski <jody.frankowski@gmail.com>
 // SPDX-License-Identifier: LGPL-3.0-only
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <rz_cons.h>
 #include <rz_util.h>
 #include <rz_util/rz_print.h>
@@ -189,6 +193,18 @@ static void cons_context_deinit(RzConsContext *context) {
 }
 
 static inline void __cons_write_ll(RzCons *cons, const char *buf, int len) {
+#ifdef __EMSCRIPTEN__
+	if (len > 0) {
+		char *tmp = malloc(len + 1);
+		if (tmp) {
+			memcpy(tmp, buf, len);
+			tmp[len] = '\0';
+			EM_ASM({ if (Module.print) Module.print(UTF8ToString($0)); }, tmp);
+			free(tmp);
+		}
+	}
+	return;
+#endif
 #if __WINDOWS__
 	if (cons->vtmode != RZ_VIRT_TERM_MODE_DISABLE) {
 		rz_xwrite(cons->fdout, buf, len);
@@ -590,7 +606,7 @@ RZ_API RZ_OWN RzCons *rz_cons_new() {
 #else
 	cons->vtmode = RZ_VIRT_TERM_MODE_COMPLETE;
 #endif
-#if EMSCRIPTEN
+#if defined(__EMSCRIPTEN__)
 	/* do nothing here :? */
 #elif __UNIX__
 	tcgetattr(0, &cons->term_buf);
@@ -1429,7 +1445,7 @@ RZ_API int rz_cons_get_size(RZ_NONNULL RZ_BORROW RzCons *cons, int *rows) {
 			cons->rows = 23;
 		}
 	}
-#elif EMSCRIPTEN
+#elif defined(__EMSCRIPTEN__)
 	cons->columns = 80;
 	cons->rows = 23;
 #elif __UNIX__
@@ -1628,7 +1644,7 @@ RZ_API void rz_cons_set_raw(RZ_NONNULL RZ_BORROW RzCons *cons, bool is_raw) {
 			return;
 		}
 	}
-#if EMSCRIPTEN
+#if defined(__EMSCRIPTEN__)
 	/* do nothing here */
 #elif __UNIX__
 	// enforce echo off
