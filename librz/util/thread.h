@@ -46,7 +46,11 @@
 #define RZ_TH_SEM_T  sem_t *
 #define RZ_TH_RET_T  void *
 #else
+#ifdef __EMSCRIPTEN__
+#include <rz_emscripten_thread_stubs.h>
+#else
 #error Threading library only supported for pthread and w32
+#endif
 #endif
 
 #if __APPLE__
@@ -81,6 +85,7 @@ struct rz_th_cond_t {
 	RZ_TH_COND_T cond;
 };
 
+#ifndef __EMSCRIPTEN__
 struct rz_th_t {
 	RZ_TH_TID tid; ///< Thread identifier.
 	RzThreadFunction function; ///< User defined thread function.
@@ -88,6 +93,7 @@ struct rz_th_t {
 	void *retv; ///< Thread return value.
 	bool terminated; ///< Set to true if the thread exited.
 };
+#endif
 
 RZ_IPI RZ_TH_TID rz_th_self(void);
 

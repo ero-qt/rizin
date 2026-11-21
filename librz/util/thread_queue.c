@@ -130,6 +130,14 @@ RZ_API RZ_OWN RzThreadQueue *rz_th_queue_from_pvector(RZ_NONNULL RZ_BORROW RzPVe
  */
 RZ_API void rz_th_queue_close_when_empty(RZ_NONNULL RzThreadQueue *queue) {
 	rz_return_if_fail(queue);
+
+#if defined(__EMSCRIPTEN__)
+	/* Leaves the queue open, because the threads run one after the other in
+	 * rz_th_pool_wait(), which comes after this call. A closed queue would make
+	 * rz_th_queue_pop() fail for every thread. The queue closes when it's freed.
+	 */
+	return;
+#endif
 	rz_th_lock_enter(queue->data_lock);
 	while (!queue->closed && !rz_list_empty(queue->list)) {
 		// the list is not empty, so we wait for it to be empty.
@@ -254,12 +262,21 @@ RZ_API bool rz_th_queue_pop(RZ_NONNULL RzThreadQueue *queue, bool tail, RZ_NONNU
 	rz_th_lock_enter(queue->reader_lock);
 	rz_th_lock_enter(queue->data_lock);
 
+#if defined(__EMSCRIPTEN__)
+	/* The module has one thread, so the queue already has its data or is done. */
+	if (queue->closed) {
+		rz_th_lock_leave(queue->data_lock);
+		rz_th_lock_leave(queue->reader_lock);
+		return false;
+	}
+#else
 	while (!queue->closed && rz_list_empty(queue->list)) {
 		// the queue is not closed and we need to wait till there is new data
 		queue->reader_awaiting++;
 		rz_th_cond_wait(queue->reader_cond, queue->data_lock);
 		queue->reader_awaiting--;
 	}
+#endif
 
 	if (queue->closed) {
 		// the queue is closed, nothing to do.

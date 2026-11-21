@@ -33,6 +33,8 @@ RZ_API RZ_OWN RzThreadLock *rz_th_lock_new(bool recursive) {
 	// Windows critical sections always accept recursive
 	// access and it cannot be configured in any other way.
 	InitializeCriticalSection(&thl->lock);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this needs no lock. */
 #endif
 	return thl;
 }
@@ -48,6 +50,8 @@ RZ_API void rz_th_lock_enter(RZ_NONNULL RzThreadLock *thl) {
 	pthread_mutex_lock(&thl->lock);
 #elif __WINDOWS__
 	EnterCriticalSection(&thl->lock);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 }
 
@@ -64,6 +68,8 @@ RZ_API bool rz_th_lock_tryenter(RZ_NONNULL RzThreadLock *thl) {
 	return !pthread_mutex_trylock(&thl->lock);
 #elif __WINDOWS__
 	return TryEnterCriticalSection(&thl->lock);
+#elif defined(__EMSCRIPTEN__)
+	return true; /* The module has one thread. */
 #endif
 }
 
@@ -78,6 +84,8 @@ RZ_API void rz_th_lock_leave(RZ_NONNULL RzThreadLock *thl) {
 	pthread_mutex_unlock(&thl->lock);
 #elif __WINDOWS__
 	LeaveCriticalSection(&thl->lock);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 }
 
@@ -94,6 +102,8 @@ RZ_API void rz_th_lock_free(RZ_NULLABLE RzThreadLock *thl) {
 	pthread_mutex_destroy(&thl->lock);
 #elif __WINDOWS__
 	DeleteCriticalSection(&thl->lock);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 	free(thl);
 }
