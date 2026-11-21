@@ -7,7 +7,7 @@
 
 #include "rz_io_plugins.h"
 
-#if HAVE_HEADER_LINUX_ASHMEM_H || HAVE_HEADER_SYS_SHM_H || __WINDOWS__
+#if (HAVE_HEADER_LINUX_ASHMEM_H || HAVE_HEADER_SYS_SHM_H || __WINDOWS__) && !defined(__EMSCRIPTEN__)
 #if HAVE_HEADER_LINUX_ASHMEM_H
 #include <linux/ashmem.h>
 #endif
@@ -238,9 +238,9 @@ static RzIODesc *shm__open(RzIO *io, const char *file, int rw, int mode) {
 		return NULL;
 	}
 #else
-	shm->id = atoi(ptr);
+	shm->id = atoi(name);
 	if (!shm->id) {
-		shm->id = rz_str_djb2_hash(ptr);
+		shm->id = rz_str_djb2_hash(name);
 	}
 
 	shm->buf = shmat(shm->id, 0, 0);

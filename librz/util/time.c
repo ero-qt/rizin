@@ -13,6 +13,9 @@
 #include <mach/mach_time.h>
 #elif __WINDOWS__
 #include <rz_windows.h>
+#if !defined(_MSC_VER)
+#include <sys/time.h>
+#endif
 #endif
 
 #ifdef _MSC_VER

@@ -1,3 +1,6 @@
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 // SPDX-FileCopyrightText: 2009-2020 pancake <pancake@nopcode.org>
 // SPDX-License-Identifier: LGPL-3.0-only
 
@@ -49,15 +52,19 @@ static char **env = NULL;
 #include <sys/sysctl.h>
 #endif /* defined(__FreeBSD__) || defined(__DragonFly__) */
 
-#if HAVE_BACKTRACE
+#if HAVE_BACKTRACE && !defined(__EMSCRIPTEN__)
+#ifndef __EMSCRIPTEN__
 #include <execinfo.h>
+#endif
 #endif /* HAVE_BACKTRACE */
 
 #if __APPLE__
 #include <errno.h>
 
 #if HAVE_ENVIRON
+#ifndef __EMSCRIPTEN__
 #include <execinfo.h>
+#endif
 #endif
 
 // iOS don't have this we can't hardcode
@@ -88,11 +95,14 @@ extern char **environ;
 #include <rz_windows.h>
 #include <VersionHelpers.h>
 #include <signal.h>
-#define TMP_BUFSIZE 4096
-#ifdef _MSC_VER
 #include <psapi.h>
+#include <process.h>
+#define TMP_BUFSIZE 4096
+#ifndef _MSC_VER
+#define getpid _getpid
+#endif
+#ifdef _MSC_VER
 #include <dbghelp.h>
-#include <process.h> // to allow getpid under windows msvc compilation
 #include <direct.h> // to allow getcwd under windows msvc compilation
 #endif /* _MSC_VER */
 
@@ -330,7 +340,7 @@ RZ_API char *rz_sys_cmd_strf(const char *fmt, ...) {
  * \brief Print the backtrace at the point this function is called from.
  */
 RZ_API void rz_sys_backtrace(void) {
-#if HAVE_BACKTRACE
+#if HAVE_BACKTRACE && !defined(__EMSCRIPTEN__)
 	void *array[10];
 	size_t size = backtrace(array, 10);
 	eprintf("Backtrace %zd stack frames.\n", size);
@@ -402,7 +412,14 @@ RZ_API void rz_sys_backtrace(void) {
 	free(buffer);
 	SymCleanup(process);
 #else
+#ifdef __EMSCRIPTEN__
+	char buf[1024];
+	int len = emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_JS_STACK, buf, sizeof(buf));
+	if (len > 0) { eprintf("%s\n", buf); }
+	return;
+#else
 #warning TODO: rz_sys_backtrace : unimplemented
+#endif
 #endif
 #endif
 }

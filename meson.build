@@ -401,7 +401,7 @@ rizin_grammar_c_dep = rizin_grammar_c_proj.get_variable('rizin_grammar_c_dep')
 # override done in rizin-grammar-c subproject
 
 has_debugger = get_option('debugger')
-have_ptrace = not ['windows', 'cygwin', 'sunos', 'haiku'].contains(host_machine.system())
+have_ptrace = not ['windows', 'cygwin', 'sunos', 'haiku', 'emscripten'].contains(host_machine.system())
 use_ptrace_wrap = ['linux'].contains(host_machine.system())
 
 have_ptrace = have_ptrace and has_debugger
@@ -445,7 +445,7 @@ foreach it : ccs
   if not it_cc.has_function('clock_gettime', prefix: '#include <time.h>') and it_cc.has_header_symbol('features.h', '__GLIBC__')
     it_lrt = it_cc.find_library('rt', required: true, static: is_static_build)
   endif
-  have_lrt = not ['windows', 'darwin', 'openbsd', 'android', 'haiku', 'serenity'].contains(it_machine.system())
+  have_lrt = not ['windows', 'darwin', 'openbsd', 'android', 'haiku', 'serenity', 'emscripten'].contains(it_machine.system())
   if have_lrt and not it_lrt.found()
     it_lrt = it_cc.find_library('rt', required: true, static: is_static_build)
   endif
