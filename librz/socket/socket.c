@@ -8,7 +8,7 @@
 #include <rz_util.h>
 #include <errno.h>
 
-#if EMSCRIPTEN
+#if defined(__EMSCRIPTEN__)
 #define NETWORK_DISABLED 1
 #else
 #define NETWORK_DISABLED 0
