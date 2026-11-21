@@ -682,16 +682,27 @@ static void patch_relocs_obj(ELFOBJ *bin, ut64 baddr, RzBuffer *patch_buf) {
 	RzBinElfReloc *reloc;
 	ut64 got_addr = get_got_addr(bin);
 	Elf_(rz_bin_elf_relocs_read_addends)(bin);
+	// Indexes the imports and the symbols by ordinal once, because a linear lookup for each
+	// reloc takes O(relocs * symbols), which is minutes for a large shared object.
+	HtUP *imports_by_ord = ht_up_new(NULL, NULL);
+	HtUP *symbols_by_ord = ht_up_new(NULL, NULL);
+	RzBinElfSymbol *it_sym;
+	rz_bin_elf_foreach_imports(bin, it_sym) {
+		ht_up_insert(imports_by_ord, it_sym->ordinal, it_sym);
+	}
+	rz_bin_elf_foreach_symbols(bin, it_sym) {
+		ht_up_insert(symbols_by_ord, it_sym->ordinal, it_sym);
+	}
 
 	rz_bin_elf_foreach_relocs(bin, reloc) {
 		ut64 sym_addr = 0;
 		ut64 sym_size = 0;
 		if (reloc->sym) {
-			RzBinElfSymbol *import = Elf_(rz_bin_elf_get_import)(bin, reloc->sym);
+			RzBinElfSymbol *import = ht_up_find(imports_by_ord, reloc->sym, NULL);
 			if (import) {
 				sym_addr = rz_bin_reloc_target_builder_get_target(targets, reloc->sym);
 			} else {
-				RzBinElfSymbol *symbol = Elf_(rz_bin_elf_get_symbol)(bin, reloc->sym);
+				RzBinElfSymbol *symbol = ht_up_find(symbols_by_ord, reloc->sym, NULL);
 				if (symbol) {
 					sym_addr = symbol->vaddr;
 					if (Elf_(rz_bin_elf_is_arm_binary_supporting_thumb)(bin) && RZ_STR_EQ(symbol->type, RZ_BIN_TYPE_FUNC_STR) && Elf_(rz_bin_elf_is_thumb_addr)(sym_addr)) {
@@ -707,6 +718,8 @@ static void patch_relocs_obj(ELFOBJ *bin, ut64 baddr, RzBuffer *patch_buf) {
 		Elf_(rz_bin_elf_patch_relocation)(bin, reloc, sym_addr, sym_size, baddr, sym_addr, got_addr);
 		reloc->target_vaddr = sym_addr;
 	}
+	ht_up_free(imports_by_ord);
+	ht_up_free(symbols_by_ord);
 	rz_bin_reloc_target_builder_free(targets);
 	// from now on, all writes should propagate through to the actual file
 	rz_buf_sparse_set_write_mode(bin->buf_patched, RZ_BUF_SPARSE_WRITE_MODE_THROUGH);
