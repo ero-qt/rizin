@@ -74,6 +74,100 @@ err:
 	return false;
 }
 
+static bool PDBSProcedure_parse(RzBuffer *b, PDBSymbolKind kind, PDBSProcedure *s) {
+	map_err(rz_buf_read_le32(b, &s->parent) &&
+		rz_buf_read_le32(b, &s->end) &&
+		rz_buf_read_le32(b, &s->next) &&
+		rz_buf_read_le32(b, &s->length) &&
+		rz_buf_read_le32(b, &s->debug_start) &&
+		rz_buf_read_le32(b, &s->debug_end) &&
+		rz_buf_read_le32(b, &s->type_index) &&
+		PDBSectionOffset_parse(b, &s->offset) &&
+		rz_buf_read8(b, &s->flags) &&
+		symbol_name_parse(b, kind, &s->name));
+	s->global = kind == S_GPROC32 || kind == S_GPROC32_ID;
+	s->id = kind == S_GPROC32_ID || kind == S_LPROC32_ID;
+	return true;
+err:
+	return false;
+}
+
+static bool PDBSFrameProcedure_parse(RzBuffer *b, PDBSFrameProcedure *s) {
+	map_err(rz_buf_read_le32(b, &s->frame_size) &&
+		rz_buf_read_le32(b, &s->padding_size) &&
+		rz_buf_read_le32(b, &s->padding_offset) &&
+		rz_buf_read_le32(b, &s->saved_registers_size) &&
+		PDBSectionOffset_parse(b, &s->exception_handler) &&
+		rz_buf_read_le32(b, &s->flags));
+	s->local_base_pointer = (s->flags >> 14) & 3;
+	s->param_base_pointer = (s->flags >> 16) & 3;
+	return true;
+err:
+	return false;
+}
+
+static bool PDBSLocal_parse(RzBuffer *b, PDBSymbolKind kind, PDBSLocal *s) {
+	map_err(rz_buf_read_le32(b, &s->type_index) &&
+		rz_buf_read_le16(b, &s->flags) &&
+		symbol_name_parse(b, kind, &s->name));
+	s->param = s->flags & 0x0001;
+	s->optimized_out = s->flags & 0x0100;
+	return true;
+err:
+	return false;
+}
+
+static bool PDBSDefRange_parse(RzBuffer *b, PDBSymbolKind kind, PDBSDefRange *s) {
+	ut32 offset = 0;
+	ut16 flags = 0;
+	switch (kind) {
+	case S_DEFRANGE_REGISTER:
+		return rz_buf_read_le16(b, &s->register_index);
+	case S_DEFRANGE_REGISTER_REL:
+		map_err(rz_buf_read_le16(b, &s->register_index) && rz_buf_read_le16(b, &flags));
+		// fallthrough
+	default:
+		map_err(rz_buf_read_le32(b, &offset));
+		s->offset = (st32)offset;
+		return true;
+	}
+err:
+	return false;
+}
+
+static int PDBSDefRange_kind(PDBSymbolKind kind) {
+	switch (kind) {
+	case S_DEFRANGE_REGISTER: return PDB_DefRangeRegister;
+	case S_DEFRANGE_FRAMEPOINTER_REL: return PDB_DefRangeFramePointerRelative;
+	case S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE: return PDB_DefRangeFramePointerRelativeFullScope;
+	default: return PDB_DefRangeRegisterRelative;
+	}
+}
+
+static bool PDBSRegisterRelative_parse(RzBuffer *b, PDBSymbolKind kind, PDBSRegisterRelative *s) {
+	ut32 offset = 0;
+	map_err(rz_buf_read_le32(b, &offset) &&
+		rz_buf_read_le32(b, &s->type_index) &&
+		(kind == S_BPREL32 || rz_buf_read_le16(b, &s->register_index)) &&
+		symbol_name_parse(b, kind, &s->name));
+	s->offset = (st32)offset;
+	return true;
+err:
+	return false;
+}
+
+static bool PDBSRegisterVariable_parse(RzBuffer *b, PDBSymbolKind kind, PDBSRegisterVariable *s) {
+	return rz_buf_read_le32(b, &s->type_index) &&
+		rz_buf_read_le16(b, &s->register_index) &&
+		symbol_name_parse(b, kind, &s->name);
+}
+
+static bool PDBSInlineSite_parse(RzBuffer *b, PDBSInlineSite *s) {
+	return rz_buf_read_le32(b, &s->parent) &&
+		rz_buf_read_le32(b, &s->end) &&
+		rz_buf_read_le32(b, &s->inlinee);
+}
+
 RZ_IPI bool PDBSymbol_parse(RzBuffer *b, PDBSymbol *symbol) {
 	if (!symbol) {
 		return false;
@@ -100,6 +194,55 @@ RZ_IPI bool PDBSymbol_parse(RzBuffer *b, PDBSymbol *symbol) {
 		symbol->data = RZ_NEW0(PDBSPublic);
 		map_err(symbol->data);
 		map_err(PDBSPublic_parse(b, symbol->raw_kind, symbol->data));
+		break;
+	case S_GPROC32:
+	case S_LPROC32:
+	case S_GPROC32_ID:
+	case S_LPROC32_ID:
+		symbol->kind = PDB_Procedure;
+		symbol->data = RZ_NEW0(PDBSProcedure);
+		map_err(symbol->data);
+		map_err(PDBSProcedure_parse(b, symbol->raw_kind, symbol->data));
+		break;
+	case S_FRAMEPROC:
+		symbol->kind = PDB_FrameProcedure;
+		symbol->data = RZ_NEW0(PDBSFrameProcedure);
+		map_err(symbol->data);
+		map_err(PDBSFrameProcedure_parse(b, symbol->data));
+		break;
+	case S_LOCAL:
+		symbol->kind = PDB_Local;
+		symbol->data = RZ_NEW0(PDBSLocal);
+		map_err(symbol->data);
+		map_err(PDBSLocal_parse(b, symbol->raw_kind, symbol->data));
+		break;
+	case S_DEFRANGE_REGISTER:
+	case S_DEFRANGE_FRAMEPOINTER_REL:
+	case S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE:
+	case S_DEFRANGE_REGISTER_REL:
+		symbol->kind = PDBSDefRange_kind(symbol->raw_kind);
+		symbol->data = RZ_NEW0(PDBSDefRange);
+		map_err(symbol->data);
+		map_err(PDBSDefRange_parse(b, symbol->raw_kind, symbol->data));
+		break;
+	case S_REGREL32:
+	case S_BPREL32:
+		symbol->kind = symbol->raw_kind == S_REGREL32 ? PDB_RegisterRelative : PDB_BasePointerRelative;
+		symbol->data = RZ_NEW0(PDBSRegisterRelative);
+		map_err(symbol->data);
+		map_err(PDBSRegisterRelative_parse(b, symbol->raw_kind, symbol->data));
+		break;
+	case S_REGISTER:
+		symbol->kind = PDB_RegisterVariable;
+		symbol->data = RZ_NEW0(PDBSRegisterVariable);
+		map_err(symbol->data);
+		map_err(PDBSRegisterVariable_parse(b, symbol->raw_kind, symbol->data));
+		break;
+	case S_INLINESITE:
+		symbol->kind = PDB_InlineSite;
+		symbol->data = RZ_NEW0(PDBSInlineSite);
+		map_err(symbol->data);
+		map_err(PDBSInlineSite_parse(b, symbol->data));
 		break;
 	default:
 		RZ_LOG_DEBUG("unimplemented symbol kind: 0x%" PFMT32x "\n", symbol->raw_kind);
@@ -138,6 +281,23 @@ err:
 	return NULL;
 }
 
+static void PDBSymbol_data_free(PDBSymbol *symbol) {
+	if (!symbol->data) {
+		return;
+	}
+	switch (symbol->kind) {
+	case PDB_Public: free(((PDBSPublic *)symbol->data)->name); break;
+	case PDB_Data: free(((PDBSData *)symbol->data)->name); break;
+	case PDB_Procedure: free(((PDBSProcedure *)symbol->data)->name); break;
+	case PDB_Local: free(((PDBSLocal *)symbol->data)->name); break;
+	case PDB_RegisterRelative:
+	case PDB_BasePointerRelative: free(((PDBSRegisterRelative *)symbol->data)->name); break;
+	case PDB_RegisterVariable: free(((PDBSRegisterVariable *)symbol->data)->name); break;
+	default: break;
+	}
+	RZ_FREE(symbol->data);
+}
+
 RZ_IPI bool PDBSymbolIter_next(PDBSymbolIter *iter, PDBSymbol *symbol) {
 	if (!iter) {
 		return false;
@@ -161,7 +321,11 @@ RZ_IPI bool PDBSymbolIter_next(PDBSymbolIter *iter, PDBSymbol *symbol) {
 		map_err(b);
 		symbol->index = index;
 		symbol->length = length;
-		map_err(PDBSymbol_parse(b, symbol));
+		if (!PDBSymbol_parse(b, symbol)) {
+			// Skips a record that is shorter than its kind needs.
+			PDBSymbol_data_free(symbol);
+			goto loop_continue;
+		}
 
 		switch (symbol->raw_kind) {
 		case S_ALIGN:
@@ -196,22 +360,7 @@ static void PDBSymbol_free(void *x) {
 		return;
 	}
 	PDBSymbol *symbol = x;
-	if (symbol->data) {
-		switch (symbol->kind) {
-		case PDB_Public: {
-			PDBSPublic *d = symbol->data;
-			free(d->name);
-			break;
-		}
-		case PDB_Data: {
-			PDBSData *d = symbol->data;
-			free(d->name);
-			break;
-		}
-		default: rz_warn_if_reached(); break;
-		}
-		free(symbol->data);
-	}
+	PDBSymbol_data_free(symbol);
 	free(symbol);
 }
 

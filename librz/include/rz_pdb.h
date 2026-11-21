@@ -179,6 +179,7 @@ typedef struct tpi_types {
 	RzPDBTpiKind kind;
 	void *data;
 	bool parsed;
+	bool parsing; ///< set while the type is parsed, to stop at a type that refers to itself
 } RzPdbTpiType;
 
 typedef struct tpi_stream_t {
@@ -276,6 +277,15 @@ typedef struct {
 	RzPVector /*<PDBSymbol *>*/ *symbols;
 } PDBModuleInfo;
 
+/**
+ * \brief A procedure of a module stream at its RVA
+ */
+typedef struct {
+	ut64 rva;
+	const PDBModuleInfo *module; ///< module whose symbols have the procedure
+	size_t index; ///< index of the procedure in the symbols of the module
+} PDBProcedureEntry;
+
 typedef struct rz_pdb_t {
 	RzBuffer *buf; // mmap of file
 	RzPdbMsfSuperBlock *super_block;
@@ -288,6 +298,9 @@ typedef struct rz_pdb_t {
 	RzPdbOmapStream *s_omap;
 	RzPdbPeStream *s_pe;
 	RzPVector /*<PDBModuleInfo *>*/ *module_infos;
+	RzVector /*<PDBProcedureEntry>*/ procedures; ///< procedures of the module streams, sorted by RVA
+	RzVector /*<ut64>*/ ipi_offsets; ///< offset of each record of the IPI stream, from its first index
+	ut32 ipi_begin; ///< index of the first record of the IPI stream
 	size_t RtlpHpHeapGlobalsOffset; ///< Related to windows heap
 	size_t RtlpLFHKeyOffset; ///< Related to windows heap
 } RzPdb;
@@ -317,6 +330,90 @@ typedef struct {
 	PDBSectionOffset offset;
 	char *name;
 } PDBSPublic;
+
+/**
+ * \brief A procedure (S_GPROC32, S_LPROC32, S_GPROC32_ID or S_LPROC32_ID)
+ *
+ * The symbols of its frame, parameters and locals follow it up to the symbol at \p end.
+ */
+typedef struct {
+	bool global : 1;
+	bool id : 1; ///< type_index is an index into the IPI stream
+	ut32 parent;
+	ut32 end; ///< index of the symbol that ends the procedure
+	ut32 next;
+	ut32 length;
+	ut32 debug_start;
+	ut32 debug_end;
+	PDBTypeIndex type_index;
+	PDBSectionOffset offset;
+	ut8 flags;
+	char *name;
+} PDBSProcedure;
+
+/**
+ * \brief Frame of a procedure (S_FRAMEPROC)
+ */
+typedef struct {
+	ut32 frame_size; ///< size of the locals below the saved registers
+	ut32 padding_size;
+	ut32 padding_offset;
+	ut32 saved_registers_size;
+	PDBSectionOffset exception_handler;
+	ut32 flags;
+	ut8 local_base_pointer : 2; ///< register of S_DEFRANGE_FRAMEPOINTER_REL: 1 stack pointer (VFRAME on x86), 2 frame pointer
+	ut8 param_base_pointer : 2;
+} PDBSFrameProcedure;
+
+/**
+ * \brief A variable of optimized code (S_LOCAL), whose locations are the S_DEFRANGE_* symbols after it
+ */
+typedef struct {
+	bool param : 1;
+	bool optimized_out : 1;
+	PDBTypeIndex type_index;
+	ut16 flags;
+	char *name;
+} PDBSLocal;
+
+/**
+ * \brief A location of the last S_LOCAL: S_DEFRANGE_REGISTER, S_DEFRANGE_FRAMEPOINTER_REL,
+ * S_DEFRANGE_FRAMEPOINTER_REL_FULL_SCOPE or S_DEFRANGE_REGISTER_REL
+ */
+typedef struct {
+	ut16 register_index; ///< not set for a range relative to the frame pointer of the procedure
+	st32 offset; ///< not set for S_DEFRANGE_REGISTER
+} PDBSDefRange;
+
+/**
+ * \brief A variable at an offset from a register (S_REGREL32) or from the frame pointer (S_BPREL32)
+ */
+typedef struct {
+	st32 offset;
+	PDBTypeIndex type_index;
+	ut16 register_index; ///< not set for S_BPREL32
+	char *name;
+} PDBSRegisterRelative;
+
+/**
+ * \brief A variable in a register (S_REGISTER)
+ */
+typedef struct {
+	PDBTypeIndex type_index;
+	ut16 register_index;
+	char *name;
+} PDBSRegisterVariable;
+
+/**
+ * \brief The call site of an inlined function (S_INLINESITE)
+ *
+ * The symbols of the variables of the inlined function follow it up to the symbol at \p end.
+ */
+typedef struct {
+	ut32 parent;
+	ut32 end;
+	PDBTypeIndex inlinee;
+} PDBSInlineSite;
 
 typedef struct {
 	PDBSymbolIndex index;
@@ -381,6 +478,8 @@ RZ_API bool rz_bin_pdb_type_is_fwdref(RZ_NONNULL RzPdbTpiType *t);
 RZ_API RZ_BORROW RzPVector /*<RzPdbTpiType *>*/ *rz_bin_pdb_get_type_members(RZ_NONNULL RzPdbTpiStream *stream, RzPdbTpiType *t);
 RZ_API RZ_BORROW char *rz_bin_pdb_get_type_name(RZ_NONNULL RzPdbTpiType *type);
 RZ_API ut64 rz_bin_pdb_get_type_val(RZ_NONNULL RzPdbTpiType *type);
+RZ_API PDBTypeIndex rz_bin_pdb_get_function_type_by_id(RZ_NONNULL const RzPdb *pdb, PDBTypeIndex id);
+RZ_API RZ_BORROW const PDBProcedureEntry *rz_bin_pdb_get_procedure_at(RZ_NONNULL const RzPdb *pdb, ut64 rva);
 
 // OMAP
 RZ_API ut64 rz_bin_pdb_to_rva(
