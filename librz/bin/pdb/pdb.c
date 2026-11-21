@@ -44,6 +44,60 @@ static bool parse_stream(
 	return f(pdb, stream);
 }
 
+static int procedure_entry_cmp(const void *a, const void *b, void *user) {
+	ut64 left = ((const PDBProcedureEntry *)a)->rva;
+	ut64 right = ((const PDBProcedureEntry *)b)->rva;
+	return left < right ? -1 : left > right;
+}
+
+/**
+ * \brief Indexes the procedures of the module streams by RVA, so a lookup of a procedure doesn't read every symbol
+ */
+static void procedures_index(RzPdb *pdb) {
+	void **modit;
+	rz_pvector_foreach (pdb->module_infos, modit) {
+		const PDBModuleInfo *module = *modit;
+		for (size_t i = 0; module->symbols && i < rz_pvector_len(module->symbols); i++) {
+			const PDBSymbol *symbol = rz_pvector_at(module->symbols, i);
+			if (symbol->kind != PDB_Procedure || !symbol->data) {
+				continue;
+			}
+			PDBProcedureEntry entry = { rz_bin_pdb_to_rva(pdb, &((PDBSProcedure *)symbol->data)->offset), module, i };
+			if (entry.rva != UT64_MAX) {
+				rz_vector_push(&pdb->procedures, &entry);
+			}
+		}
+	}
+	rz_vector_sort(&pdb->procedures, procedure_entry_cmp, false, NULL);
+}
+
+/**
+ * \brief Indexes the offsets of the records of the IPI stream, so a lookup of a record doesn't read every record
+ *
+ * The IPI stream always has the index 4 and the layout of the TPI stream.
+ */
+static void ipi_index(RzPdb *pdb) {
+	RzPdbMsfStream *stream = pdb_raw_steam(pdb, 4);
+	ut32 header_size = 0;
+	ut32 end = 0;
+	if (!stream ||
+		!rz_buf_read_le32_at(stream->stream_data, 4, &header_size) ||
+		!rz_buf_read_le32_at(stream->stream_data, 8, &pdb->ipi_begin) ||
+		!rz_buf_read_le32_at(stream->stream_data, 12, &end)) {
+		return;
+	}
+	// Each step moves at least 4 bytes ahead, so the walk ends at the end of the stream.
+	ut64 offset = header_size;
+	for (ut32 index = pdb->ipi_begin; index < end; index++) {
+		ut16 length = 0;
+		if (!rz_buf_read_le16_at(stream->stream_data, offset, &length) || length < 2) {
+			return;
+		}
+		rz_vector_push(&pdb->ipi_offsets, &offset);
+		offset += sizeof(length) + length;
+	}
+}
+
 static bool parse_streams(RzPdb *pdb) {
 	if (!(parse_stream(pdb, PDB_STREAM_PDB, pdb_stream_parse, false) &&
 		    parse_stream(pdb, PDB_STREAM_TPI, tpi_stream_parse, false) &&
@@ -73,6 +127,10 @@ static bool parse_streams(RzPdb *pdb) {
 			rz_pvector_push(pdb->module_infos, modi);
 		}
 	}
+	rz_vector_init(&pdb->procedures, sizeof(PDBProcedureEntry), NULL, NULL);
+	rz_vector_init(&pdb->ipi_offsets, sizeof(ut64), NULL, NULL);
+	procedures_index(pdb);
+	ipi_index(pdb);
 	return true;
 }
 
@@ -386,6 +444,8 @@ RZ_API void rz_bin_pdb_free(RzPdb *pdb) {
 	msf_stream_directory_free(pdb->msd);
 	rz_pvector_free(pdb->streams);
 	rz_pvector_free(pdb->module_infos);
+	rz_vector_fini(&pdb->procedures);
+	rz_vector_fini(&pdb->ipi_offsets);
 	free(pdb->s_pdb);
 	dbi_stream_free(pdb->s_dbi);
 	gdata_stream_free(pdb->s_gdata);
@@ -393,4 +453,47 @@ RZ_API void rz_bin_pdb_free(RzPdb *pdb) {
 	tpi_stream_free(pdb->s_tpi);
 	pe_stream_free(pdb->s_pe);
 	free(pdb);
+}
+
+#define PROCEDURE_RVA_CMP(rva, entry) RZ_NUM_CMP(rva, ((const PDBProcedureEntry *)(entry))->rva)
+
+/**
+ * \brief Get the procedure of a module stream at an RVA
+ *
+ * \param pdb PDB instance
+ * \param rva RVA of the procedure
+ * \return The procedure with its module and the index of its symbol, or NULL if there is no procedure at \p rva
+ */
+RZ_API RZ_BORROW const PDBProcedureEntry *rz_bin_pdb_get_procedure_at(RZ_NONNULL const RzPdb *pdb, ut64 rva) {
+	rz_return_val_if_fail(pdb, NULL);
+	size_t index;
+	rz_vector_lower_bound(&pdb->procedures, rva, index, PROCEDURE_RVA_CMP);
+	const PDBProcedureEntry *entry = index < rz_vector_len(&pdb->procedures) ? rz_vector_index_ptr(&pdb->procedures, index) : NULL;
+	return entry && entry->rva == rva ? entry : NULL;
+}
+
+/**
+ * \brief Get the TPI type of the function that a LF_FUNC_ID or LF_MFUNC_ID record of the IPI stream describes
+ *
+ * The S_GPROC32_ID and S_LPROC32_ID symbols refer to such a record instead of the type of their function.
+ *
+ * \param pdb PDB instance
+ * \param id IPI Stream Index
+ * \return The TPI Stream Index of the type, or 0 if \p id is not the index of such a record
+ */
+RZ_API PDBTypeIndex rz_bin_pdb_get_function_type_by_id(RZ_NONNULL const RzPdb *pdb, PDBTypeIndex id) {
+	rz_return_val_if_fail(pdb, 0);
+	RzPdbMsfStream *stream = pdb_raw_steam(pdb, 4);
+	if (!stream || id < pdb->ipi_begin || id - pdb->ipi_begin >= rz_vector_len(&pdb->ipi_offsets)) {
+		return 0;
+	}
+	ut64 offset = *(ut64 *)rz_vector_index_ptr(&pdb->ipi_offsets, id - pdb->ipi_begin);
+	ut16 leaf = 0;
+	ut32 type = 0;
+	if (!rz_buf_read_le16_at(stream->stream_data, offset + 2, &leaf) ||
+		(leaf != LF_FUNCTION_ID && leaf != LF_MEMBER_FUNCTION_ID) ||
+		!rz_buf_read_le32_at(stream->stream_data, offset + 8, &type)) {
+		return 0;
+	}
+	return type;
 }
