@@ -16,9 +16,7 @@ static RzType *procedure_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, R
 static RzType *array_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type);
 static void arglist_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *arglist, RzPVector /*<RzCallableArg *>*/ *vec);
 static RzType *mfunction_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type_info, char *name);
-static RzType *onemethod_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type_info);
 static RzType *member_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type_info, char *name, ut64 *bitfield_width);
-static RzType *nest_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *t);
 static RzType *union_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type);
 static RzTypeUnionMember *union_member_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type_info);
 static RzType *class_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type);
@@ -250,21 +248,6 @@ static RzType *mfunction_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, R
 	return type;
 }
 
-static RzType *onemethod_parse(
-	const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type_info) {
-	rz_return_val_if_fail(type_info && typedb, NULL);
-	Tpi_LF_OneMethod *lf_onemethod = type_info->data;
-	char *name = rz_bin_pdb_get_type_name(type_info);
-	RzPdbTpiType *utype = rz_bin_pdb_get_type_by_index(stream, lf_onemethod->index);
-	if (!utype) {
-		return NULL;
-	}
-	if (utype->kind == TpiKind_MFUNCTION) {
-		return mfunction_parse(typedb, stream, utype, name);
-	}
-	return NULL;
-}
-
 static RzType *member_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type_info, char *name, ut64 *bitfield_width) {
 	rz_return_val_if_fail(type_info && typedb, NULL);
 	Tpi_LF_Member *lf_member = type_info->data;
@@ -293,60 +276,6 @@ static RzType *member_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPd
 	return pdb_type_parse(typedb, stream, utype, name);
 }
 
-static RzType *static_member_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type_info, char *name) {
-	rz_return_val_if_fail(type_info && typedb, NULL);
-	Tpi_LF_StaticMember *lf_stmember = type_info->data;
-	RzPdbTpiType *utype = rz_bin_pdb_get_type_by_index(stream, lf_stmember->field_type);
-	if (!utype) {
-		return NULL;
-	}
-	return pdb_type_parse(typedb, stream, utype, name);
-}
-
-static RzType *type_new_identify(const char *name, RzTypeIdentifierKind k) {
-	if (RZ_STR_ISEMPTY(name)) {
-		return NULL;
-	}
-	RzType *t = RZ_NEW0(RzType);
-	if (!t) {
-		return NULL;
-	}
-	t->kind = RZ_TYPE_KIND_IDENTIFIER;
-	t->identifier.name = rz_str_dup(name);
-	t->identifier.kind = k;
-	return t;
-}
-
-static RzTypeIdentifierKind iKind_from_bKind(RzBaseTypeKind k) {
-	switch (k) {
-	case RZ_BASE_TYPE_KIND_STRUCT: return RZ_TYPE_IDENTIFIER_KIND_STRUCT;
-	case RZ_BASE_TYPE_KIND_UNION: return RZ_TYPE_IDENTIFIER_KIND_UNION;
-	case RZ_BASE_TYPE_KIND_ENUM: return RZ_TYPE_IDENTIFIER_KIND_ENUM;
-	case RZ_BASE_TYPE_KIND_TYPEDEF:
-	case RZ_BASE_TYPE_KIND_ATOMIC: return RZ_TYPE_IDENTIFIER_KIND_UNSPECIFIED;
-	}
-	return RZ_TYPE_IDENTIFIER_KIND_UNSPECIFIED;
-}
-
-static RzType *nest_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type_info) {
-	rz_return_val_if_fail(type_info && stream && typedb, NULL);
-	Tpi_LF_NestType *lf_nest = type_info->data;
-	RzPdbTpiType *utpi = rz_bin_pdb_get_type_by_index(stream, lf_nest->index);
-	if (!utpi) {
-		return NULL;
-	}
-	const char *uname = rz_bin_pdb_get_type_name(utpi);
-	if (uname) {
-		const RzBaseType *bt = rz_type_db_get_base_type(typedb, uname);
-		if (bt) {
-			return type_new_identify(bt->name, iKind_from_bKind(bt->kind));
-		}
-	}
-	// pdb_type_parse() already returns an owned type, so return it directly
-	// instead of cloning and leaking the original.
-	return pdb_type_parse(typedb, stream, utpi, NULL);
-}
-
 /**
  * \brief Parses struct member
  *
@@ -363,33 +292,21 @@ static RzTypeStructMember *class_member_parse(
 	ut64 bitfield_width = 0;
 	RzType *type = NULL;
 	switch (t->kind) {
-	case TpiKind_ONEMETHOD: {
-		name = rz_bin_pdb_get_type_name(t);
-		type = onemethod_parse(typedb, stream, t);
-		break;
-	}
 	case TpiKind_MEMBER: {
 		offset = rz_bin_pdb_get_type_val(t);
 		name = rz_bin_pdb_get_type_name(t);
 		type = member_parse(typedb, stream, t, name, &bitfield_width);
 		break;
 	}
-	case TpiKind_STMEMBER: {
-		name = rz_bin_pdb_get_type_name(t);
-		type = static_member_parse(typedb, stream, t, name);
-		break;
-	}
-	case TpiKind_NESTTYPE: {
-		name = rz_bin_pdb_get_type_name(t);
-		type = nest_parse(typedb, stream, t);
-		break;
-	}
+	case TpiKind_ONEMETHOD:
+	case TpiKind_METHOD:
+	case TpiKind_STMEMBER:
+	case TpiKind_NESTTYPE:
+		// Skips what takes no space in an object, because a nested type can be the structure itself.
+		goto cleanup;
 	case TpiKind_VBCLASS:
 	case TpiKind_BCLASS:
 		// For structure, we don't need base class for now
-		goto cleanup;
-	case TpiKind_METHOD:
-		// TODO: need to handle overloaded methods here
 		goto cleanup;
 	case TpiKind_VFUNCTAB:
 		// For structure, we don't need vtable for now
@@ -556,22 +473,18 @@ static RzTypeUnionMember *union_member_parse(const RzTypeDB *typedb, RzPdbTpiStr
 	ut64 bitfield_width = 0;
 	RzType *type = NULL;
 	switch (type_info->kind) {
-	case TpiKind_ONEMETHOD: {
-		name = rz_bin_pdb_get_type_name(type_info);
-		type = onemethod_parse(typedb, stream, type_info);
-		break;
-	}
 	case TpiKind_MEMBER: {
 		offset = rz_bin_pdb_get_type_val(type_info);
 		name = rz_bin_pdb_get_type_name(type_info);
 		type = member_parse(typedb, stream, type_info, name, &bitfield_width);
 		break;
 	}
-	case TpiKind_NESTTYPE: {
-		name = rz_bin_pdb_get_type_name(type_info);
-		type = nest_parse(typedb, stream, type_info);
-		break;
-	}
+	case TpiKind_ONEMETHOD:
+	case TpiKind_METHOD:
+	case TpiKind_STMEMBER:
+	case TpiKind_NESTTYPE:
+		// Skips what takes no space in an object, like in a structure.
+		goto cleanup;
 	default:
 		rz_warn_if_reached();
 		RZ_LOG_ERROR("%s : unsupported leaf type 0x%x\n", __FUNCTION__, type_info->leaf);
