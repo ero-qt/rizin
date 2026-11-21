@@ -777,7 +777,7 @@ foreach_members:
 	return base_type->type ? rz_type_clone(base_type->type) : NULL;
 }
 
-static RzType *pdb_type_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type, char *name) {
+static RzType *pdb_type_parse_kind(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type, char *name) {
 	switch (type->kind) {
 	case TpiKind_SIMPLE_TYPE:
 		return pdb_simple_type_parse(typedb, type);
@@ -824,6 +824,17 @@ static RzType *pdb_type_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, Rz
 	return NULL;
 }
 
+static RzType *pdb_type_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type, char *name) {
+	if (type->parsing) {
+		// Stops at a type that refers to itself, because a broken or hostile PDB file can have one.
+		return NULL;
+	}
+	type->parsing = true;
+	RzType *result = pdb_type_parse_kind(typedb, stream, type, name);
+	type->parsing = false;
+	return result;
+}
+
 /**
  * \brief Delegate the type parsing to appropriate function
  *
@@ -865,4 +876,281 @@ RZ_API void rz_type_db_pdb_load(const RzTypeDB *typedb, const RzPdb *pdb) {
 			rz_type_free(rz_type_db_pdb_parse(typedb, stream, type));
 		}
 	}
+}
+
+// Register numbers of CodeView (cvconst.h) for the stack and frame pointers of x86 and x86-64
+#define CV_REG_ESP       21
+#define CV_REG_EBP       22
+#define CV_AMD64_RBP     334
+#define CV_AMD64_RSP     335
+#define CV_ALLREG_VFRAME 30006
+
+// Stops at this number of locals of a procedure, because each local costs a walk over the variables of the function.
+#define PDB_MAX_LOCALS 1024
+
+typedef struct {
+	RzAnalysis *analysis;
+	RzAnalysisFunction *fcn;
+	const RzPdb *pdb;
+	const PDBSFrameProcedure *frame;
+	RzPVector /*<char *>*/ param_names;
+	size_t param_count;
+	size_t local_count;
+} PdbFunction;
+
+/**
+ * \brief Returns a copy of the type of a procedure, with `this` as the first parameter of a method, or NULL
+ *
+ * Sets \p stored to the type in the type database, which has the name and address of the procedure, because overloads
+ * and static functions of different files can have the same name.
+ */
+static RzCallable *pdb_procedure_callable(PdbFunction *ctx, const PDBSProcedure *procedure, RzCallable **stored) {
+	RzPdbTpiStream *stream = ctx->pdb->s_tpi;
+	PDBTypeIndex index = procedure->id ? rz_bin_pdb_get_function_type_by_id(ctx->pdb, procedure->type_index) : procedure->type_index;
+	RzPdbTpiType *type = stream ? rz_bin_pdb_get_type_by_index(stream, index) : NULL;
+	if (!type || (type->kind != TpiKind_PROCEDURE && type->kind != TpiKind_MFUNCTION) || RZ_STR_ISEMPTY(procedure->name)) {
+		return NULL;
+	}
+	char *name = rz_str_newf("%s@0x%" PFMT64x, procedure->name, ctx->fcn->addr);
+	RzType *parsed = name ? pdb_type_parse(ctx->analysis->typedb, stream, type, name) : NULL;
+	free(name);
+	*stored = parsed && parsed->kind == RZ_TYPE_KIND_CALLABLE ? parsed->callable : NULL;
+	RzCallable *callable = *stored ? rz_type_callable_clone(*stored) : NULL;
+	rz_type_free(parsed);
+	if (!callable || type->kind != TpiKind_MFUNCTION) {
+		return callable;
+	}
+
+	Tpi_LF_MFcuntion *method = type->data;
+	RzPdbTpiType *this_type = rz_bin_pdb_get_type_by_index(stream, method->this_type);
+	RzType *this_parsed = this_type ? pdb_type_parse(ctx->analysis->typedb, stream, this_type, NULL) : NULL;
+	RzCallableArg *this_arg = this_parsed ? rz_type_callable_arg_new(ctx->analysis->typedb, "this", this_parsed) : NULL;
+	if (this_arg) {
+		rz_pvector_insert(callable->args, 0, this_arg);
+	}
+	return callable;
+}
+
+/**
+ * \brief Gives the parameters of a function type the names of the variables of a procedure, after the first \p skip
+ */
+static void pdb_callable_rename(RzCallable *callable, const RzPVector /*<char *>*/ *names, size_t skip) {
+	for (size_t i = 0; i < rz_pvector_len(callable->args) && skip + i < rz_pvector_len(names); i++) {
+		RzCallableArg *arg = rz_pvector_at(callable->args, i);
+		const char *name = rz_pvector_at(names, skip + i);
+		if (RZ_STR_ISNOTEMPTY(name)) {
+			free(arg->name);
+			arg->name = rz_str_dup(name);
+		}
+	}
+}
+
+/**
+ * \brief Returns the calling convention of the analysis for the calling convention of a PDB file on x86, or NULL
+ *
+ * Every function of x86-64 has the calling convention __cdecl in a PDB file, which is the one of the analysis.
+ */
+static const char *pdb_calling_convention(RzAnalysis *analysis, const char *cc) {
+	static const char *const conventions[][2] = {
+		{ "__cdecl", "cdecl" },
+		{ "__stdcall", "stdcall" },
+		{ "__fastcall", "fastcall" },
+		{ "__thiscall", "cdecl-thiscall-ms" },
+		{ "__pascal", "pascal" },
+	};
+	if (!cc || analysis->bits != 32 || !rz_analysis_is_cpu(analysis, "x86")) {
+		return NULL;
+	}
+	for (size_t i = 0; i < RZ_ARRAY_SIZE(conventions); i++) {
+		if (!strcmp(cc, conventions[i][0]) && rz_analysis_cc_exist(analysis, conventions[i][1])) {
+			return conventions[i][1];
+		}
+	}
+	return NULL;
+}
+
+/**
+ * \brief Converts an offset from a CodeView register to an offset from the stack pointer at the entry of the function
+ */
+static bool pdb_stack_offset(PdbFunction *ctx, ut16 reg, st32 offset, RzStackAddr *result) {
+	switch (reg) {
+	case CV_ALLREG_VFRAME:
+		// Keeps the offset, because the virtual frame of x86 starts at the return address.
+		*result = offset;
+		return true;
+	case CV_REG_ESP:
+	case CV_AMD64_RSP:
+		// Subtracts the saved registers and the locals, because the stack pointer stays below both after the prologue.
+		if (!ctx->frame) {
+			return false;
+		}
+		*result = (st64)offset - ctx->frame->frame_size - ctx->frame->saved_registers_size;
+		return true;
+	case CV_REG_EBP:
+	case CV_AMD64_RBP:
+		*result = (st64)offset - ctx->fcn->bp_off;
+		return true;
+	default:
+		return false;
+	}
+}
+
+/**
+ * \brief Returns the register of the S_DEFRANGE_FRAMEPOINTER_REL ranges of the procedure, or 0
+ */
+static ut16 pdb_frame_register(PdbFunction *ctx) {
+	bool x86 = ctx->analysis->bits == 32;
+	switch (ctx->frame ? ctx->frame->local_base_pointer : 0) {
+	case 1: return x86 ? CV_ALLREG_VFRAME : CV_AMD64_RSP;
+	case 2: return x86 ? CV_REG_EBP : CV_AMD64_RBP;
+	default: return 0;
+	}
+}
+
+static void pdb_local_add(PdbFunction *ctx, PDBTypeIndex type_index, const char *name, ut16 reg, st32 offset) {
+	RzAnalysisVarStorage storage;
+	RzStackAddr stack_off = 0;
+	if (RZ_STR_ISEMPTY(name) || ctx->local_count >= PDB_MAX_LOCALS || !pdb_stack_offset(ctx, reg, offset, &stack_off)) {
+		return;
+	}
+	ctx->local_count++;
+	rz_analysis_var_storage_init_stack(&storage, stack_off);
+	RzPdbTpiType *tpi_type = ctx->pdb->s_tpi ? rz_bin_pdb_get_type_by_index(ctx->pdb->s_tpi, type_index) : NULL;
+	RzType *type = tpi_type ? pdb_type_parse(ctx->analysis->typedb, ctx->pdb->s_tpi, tpi_type, NULL) : NULL;
+	RzAnalysisVar *var = rz_analysis_function_set_var(ctx->fcn, &storage, type, 0, name);
+	if (var) {
+		var->kind = RZ_ANALYSIS_VAR_KIND_VARIABLE;
+		var->origin.kind = RZ_ANALYSIS_VAR_ORIGIN_PDB;
+	}
+	rz_type_free(type);
+}
+
+/**
+ * \brief Takes a variable without a parameter flag as the next parameter until the procedure has all its parameters,
+ * because the compiler of Microsoft writes the parameters first and doesn't mark them.
+ */
+static bool pdb_is_param(PdbFunction *ctx, const char *name) {
+	void **it;
+	rz_pvector_foreach (&ctx->param_names, it) {
+		if (name && *it && !strcmp(name, *it)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool pdb_param_add(PdbFunction *ctx, const char *name) {
+	if (rz_pvector_len(&ctx->param_names) >= ctx->param_count) {
+		return false;
+	}
+	rz_pvector_push(&ctx->param_names, (void *)name);
+	return true;
+}
+
+/**
+ * \brief Adds the parameters, locals and type of the PDB procedure at the address of a function to the function
+ *
+ * Takes the names of the parameters from the variables of the procedure and their types from its type. Adds the locals
+ * on the stack with their names and types. Skips the variables of inlined functions and of registers.
+ *
+ * \param analysis RzAnalysis instance
+ * \param pdb PDB instance
+ * \param baddr Base address of the binary of the PDB file
+ * \param fcn Function to update
+ * \return true if the PDB file has a procedure at the address of \p fcn
+ */
+RZ_API bool rz_analysis_pdb_integrate_function(RZ_NONNULL RzAnalysis *analysis, RZ_NONNULL const RzPdb *pdb, ut64 baddr,
+	RZ_NONNULL RzAnalysisFunction *fcn) {
+	rz_return_val_if_fail(analysis && pdb && fcn, false);
+	const PDBProcedureEntry *entry = fcn->addr >= baddr ? rz_bin_pdb_get_procedure_at(pdb, fcn->addr - baddr) : NULL;
+	if (!entry) {
+		return false;
+	}
+	const RzPVector *symbols = entry->module->symbols;
+	const PDBSProcedure *procedure = ((const PDBSymbol *)rz_pvector_at(symbols, entry->index))->data;
+
+	// Finds the frame first, because the compiler of Microsoft can write it after the variables that need it.
+	PdbFunction ctx = { .analysis = analysis, .fcn = fcn, .pdb = pdb };
+	for (size_t i = entry->index + 1; i < rz_pvector_len(symbols) && !ctx.frame; i++) {
+		const PDBSymbol *symbol = rz_pvector_at(symbols, i);
+		if (symbol->index >= procedure->end) {
+			break;
+		}
+		ctx.frame = symbol->kind == PDB_FrameProcedure ? symbol->data : NULL;
+	}
+	rz_pvector_init(&ctx.param_names, NULL);
+	RzCallable *stored = NULL;
+	RzCallable *callable = pdb_procedure_callable(&ctx, procedure, &stored);
+	ctx.param_count = callable ? rz_pvector_len(callable->args) : 0;
+	const PDBSLocal *local = NULL;
+	ut32 inline_end = 0;
+	for (size_t i = entry->index + 1; i < rz_pvector_len(symbols); i++) {
+		const PDBSymbol *symbol = rz_pvector_at(symbols, i);
+		if (symbol->index >= procedure->end) {
+			break;
+		}
+		if (symbol->index < inline_end) {
+			continue;
+		}
+
+		const void *data = symbol->data;
+		const PDBSDefRange *range = data;
+		const PDBSRegisterRelative *relative = data;
+		switch (symbol->kind) {
+		case PDB_InlineSite:
+			inline_end = ((const PDBSInlineSite *)data)->end;
+			break;
+		case PDB_Local:
+			local = data;
+			if (local->param) {
+				rz_pvector_push(&ctx.param_names, local->name);
+			}
+			if (local->param || local->optimized_out) {
+				local = NULL;
+			}
+			break;
+		case PDB_DefRangeFramePointerRelative:
+		case PDB_DefRangeFramePointerRelativeFullScope:
+		case PDB_DefRangeRegisterRelative:
+			if (local) {
+				ut16 reg = symbol->kind == PDB_DefRangeRegisterRelative ? range->register_index : pdb_frame_register(&ctx);
+				pdb_local_add(&ctx, local->type_index, local->name, reg, range->offset);
+				local = NULL;
+			}
+			break;
+		case PDB_RegisterRelative:
+		case PDB_BasePointerRelative:
+			// Skips the home slot of a parameter that a S_LOCAL already gave a name, because the parameter keeps its
+			// place in the calling convention.
+			if (!pdb_is_param(&ctx, relative->name) && !pdb_param_add(&ctx, relative->name)) {
+				ut16 reg = symbol->kind == PDB_RegisterRelative ? relative->register_index : CV_REG_EBP;
+				pdb_local_add(&ctx, relative->type_index, relative->name, reg, relative->offset);
+			}
+			break;
+		case PDB_RegisterVariable:
+			pdb_param_add(&ctx, ((const PDBSRegisterVariable *)data)->name);
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (callable) {
+		pdb_callable_rename(callable, &ctx.param_names, 0);
+		pdb_callable_rename(stored, &ctx.param_names, rz_pvector_len(callable->args) - rz_pvector_len(stored->args));
+		callable->cc = pdb_calling_convention(analysis, callable->cc);
+		rz_analysis_function_set_type(analysis, fcn, callable);
+		void **it;
+		rz_pvector_foreach (callable->args, it) {
+			RzAnalysisVar *var = rz_analysis_function_get_var_byname(fcn, ((RzCallableArg *)*it)->name);
+			if (var) {
+				var->kind = RZ_ANALYSIS_VAR_KIND_FORMAL_PARAMETER;
+				var->origin.kind = RZ_ANALYSIS_VAR_ORIGIN_PDB;
+			}
+		}
+		rz_type_callable_free(callable);
+	}
+	rz_pvector_fini(&ctx.param_names);
+	fcn->has_debuginfo = true;
+	return true;
 }

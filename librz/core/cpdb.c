@@ -225,18 +225,22 @@ static bool symbol_load(RzPdb *pdb, const PDBSymbol *symbol, void *u) {
 	}
 	PDBLoadContext *ctx = u;
 	const RzDemanglerFlag dflags = rz_demangler_get_flags(ctx->core->bin->demangler);
-	if (symbol->kind == PDB_Public) {
+	if (symbol->kind == PDB_Public || symbol->kind == PDB_Procedure) {
+		// A procedure has the plain name of a function, also of a static function without a public symbol.
 		const PDBSPublic *public = symbol->data;
-		if (RZ_STR_ISEMPTY(public->name)) {
+		const PDBSProcedure *procedure = symbol->data;
+		const char *raw_name = symbol->kind == PDB_Public ? public->name : procedure->name;
+		const PDBSectionOffset *offset = symbol->kind == PDB_Public ? &public->offset : &procedure->offset;
+		if (RZ_STR_ISEMPTY(raw_name)) {
 			return true;
 		}
 
-		char *name = rz_demangler_msvc(public->name, dflags);
-		name = (name) ? name : rz_str_dup(public->name);
+		char *name = rz_demangler_msvc(raw_name, dflags);
+		name = (name) ? name : rz_str_dup(raw_name);
 		char *filtered_name = rz_name_filter2(name, true);
 		char *fname = rz_str_newf("pdb.%s.%s", ctx->file, filtered_name);
 
-		ut64 addr = rz_bin_pdb_to_rva(pdb, &public->offset);
+		ut64 addr = rz_bin_pdb_to_rva(pdb, offset);
 		if (addr == UT64_MAX) {
 			free(filtered_name);
 			free(fname);
@@ -291,8 +295,8 @@ static bool symbol_load(RzPdb *pdb, const PDBSymbol *symbol, void *u) {
 }
 
 /**
- * \brief Second-pass callback that turns PDB public function symbols into
- * analyzed functions.
+ * \brief Second-pass callback that turns PDB public function symbols and
+ * procedures into analyzed functions.
  *
  * The PDB explicitly marks public symbols that are functions (cvpsfFunction).
  * Some of these (e.g. virtual methods only reached through a vtable) are never
@@ -305,16 +309,17 @@ static bool symbol_load(RzPdb *pdb, const PDBSymbol *symbol, void *u) {
  * so that functions reached by direct calls from here are also named correctly.
  */
 static bool symbol_make_function(RzPdb *pdb, const PDBSymbol *symbol, void *u) {
-	if (!symbol || symbol->kind != PDB_Public) {
+	if (!symbol || (symbol->kind != PDB_Public && symbol->kind != PDB_Procedure) || !symbol->data) {
 		return true;
 	}
 	const PDBSPublic *public = symbol->data;
-	if (!public || !public->function || RZ_STR_ISEMPTY(public->name)) {
+	if (symbol->kind == PDB_Public && (!public->function || RZ_STR_ISEMPTY(public->name))) {
 		return true;
 	}
+	const PDBSectionOffset *offset = symbol->kind == PDB_Public ? &public->offset : &((PDBSProcedure *)symbol->data)->offset;
 	PDBLoadContext *ctx = u;
 	RzCore *core = ctx->core;
-	ut64 addr = rz_bin_pdb_to_rva(pdb, &public->offset);
+	ut64 addr = rz_bin_pdb_to_rva(pdb, offset);
 	if (addr == UT64_MAX) {
 		return true;
 	}
