@@ -61,7 +61,7 @@ static st64 sparse_write(SparsePriv *priv, ut64 addr, const ut8 *data, ut64 len)
 	if (in_start_index) {
 		// if we start writing inside an existing chunk, use it.
 		c = rz_vector_index_ptr(&priv->chunks, in_start_index - 1);
-		if (addr > c->to) {
+		if (c->to != UT64_MAX && addr > c->to + 1) {
 			// already after it
 			c = NULL;
 		} else {
