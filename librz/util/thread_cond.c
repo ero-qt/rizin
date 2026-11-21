@@ -22,6 +22,8 @@ RZ_API RZ_OWN RzThreadCond *rz_th_cond_new(void) {
 	}
 #elif __WINDOWS__
 	InitializeConditionVariable(&cond->cond);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this needs no condition variable. */
 #endif
 	return cond;
 }
@@ -37,6 +39,8 @@ RZ_API void rz_th_cond_signal(RZ_NONNULL RzThreadCond *cond) {
 	pthread_cond_signal(&cond->cond);
 #elif __WINDOWS__
 	WakeConditionVariable(&cond->cond);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 }
 
@@ -51,6 +55,8 @@ RZ_API void rz_th_cond_signal_all(RZ_NONNULL RzThreadCond *cond) {
 	pthread_cond_broadcast(&cond->cond);
 #elif __WINDOWS__
 	WakeAllConditionVariable(&cond->cond);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 }
 
@@ -66,6 +72,8 @@ RZ_API void rz_th_cond_wait(RZ_NONNULL RzThreadCond *cond, RZ_NONNULL RzThreadLo
 	pthread_cond_wait(&cond->cond, &lock->lock);
 #elif __WINDOWS__
 	SleepConditionVariableCS(&cond->cond, &lock->lock, INFINITE);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 }
 
@@ -80,6 +88,8 @@ RZ_API void rz_th_cond_free(RZ_NULLABLE RzThreadCond *cond) {
 	}
 #if HAVE_PTHREAD
 	pthread_cond_destroy(&cond->cond);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 	free(cond);
 }

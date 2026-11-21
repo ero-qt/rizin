@@ -62,6 +62,8 @@ RZ_API RZ_OWN RzThreadSemaphore *rz_th_sem_new(unsigned int initial) {
 		free(sem);
 		return NULL;
 	}
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this needs no semaphore. */
 #endif
 	return sem;
 }
@@ -86,6 +88,8 @@ RZ_API void rz_th_sem_free(RZ_NULLABLE RzThreadSemaphore *sem) {
 	}
 #elif __WINDOWS__
 	CloseHandle(sem->sem);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 	free(sem);
 }
@@ -101,6 +105,8 @@ RZ_API void rz_th_sem_post(RZ_NONNULL RzThreadSemaphore *sem) {
 	sem_post(sem->sem);
 #elif __WINDOWS__
 	ReleaseSemaphore(sem->sem, 1, NULL);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 }
 
@@ -116,5 +122,7 @@ RZ_API void rz_th_sem_wait(RZ_NONNULL RzThreadSemaphore *sem) {
 		;
 #elif __WINDOWS__
 	WaitForSingleObject(sem->sem, INFINITE);
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so this does nothing. */
 #endif
 }

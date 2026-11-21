@@ -29,6 +29,8 @@ RZ_IPI RZ_TH_TID rz_th_self(void) {
 	return pthread_self();
 #elif __WINDOWS__
 	return GetCurrentThread();
+#elif defined(__EMSCRIPTEN__)
+	return (RZ_TH_TID)0;
 #else
 #pragma message("Not implemented on this platform")
 	return (RZ_TH_TID)-1;
@@ -217,6 +219,10 @@ RZ_API RZ_OWN RzThread *rz_th_new(RZ_NONNULL RzThreadFunction function, RZ_NULLA
 	if ((th->tid = CreateThread(NULL, 0, thread_main_function, th, 0, 0))) {
 		return th;
 	}
+#elif defined(__EMSCRIPTEN__)
+	/* The module has one thread, so rz_th_wait() runs the function. */
+	th->terminated = false;
+	return th;
 #endif
 	RZ_LOG_ERROR("thread: Failed to start the RzThread\n");
 	free(th);
@@ -237,6 +243,13 @@ RZ_API bool rz_th_wait(RZ_NONNULL RzThread *th) {
 	return pthread_join(th->tid, &thret) == 0;
 #elif __WINDOWS__
 	return WaitForSingleObject(th->tid, INFINITE) == 0; // WAIT_OBJECT_0
+#elif defined(__EMSCRIPTEN__)
+	/* Runs the function that rz_th_new() kept for this call. */
+	if (!th->terminated) {
+		th->retv = th->function(th->user);
+		th->terminated = true;
+	}
+	return true;
 #endif
 }
 

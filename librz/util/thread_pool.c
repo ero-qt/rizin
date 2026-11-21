@@ -21,7 +21,10 @@ struct rz_th_pool_t {
  * \return     The number of available physical cores (always >= 1)
  */
 RZ_API RzThreadNCores rz_th_physical_core_number() {
-#ifdef __WINDOWS__
+#if defined(__EMSCRIPTEN__)
+	/* The module has one thread. */
+	return 1;
+#elif defined(__WINDOWS__)
 	SYSTEM_INFO sysinfo;
 	GetSystemInfo(&sysinfo);
 	return (RzThreadNCores)sysinfo.dwNumberOfProcessors;
