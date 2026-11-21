@@ -694,6 +694,7 @@ typedef struct dwarf_variable_t {
 typedef enum {
 	RZ_ANALYSIS_VAR_ORIGIN_NONE = 0, ///< Variable was created from rizin
 	RZ_ANALYSIS_VAR_ORIGIN_DWARF, ///< Variable was created from DWARF information
+	RZ_ANALYSIS_VAR_ORIGIN_PDB, ///< Variable was created from PDB information
 	/* End enum */
 	RZ_ANALYSIS_VAR_ORIGIN_END ///< Number of RzAnalysisVarOriginKind enums
 } RzAnalysisVarOriginKind;
@@ -707,6 +708,7 @@ static const char *RzAnalysisVarKind_strings[RZ_ANALYSIS_VAR_KIND_END] = {
 static const char *RzAnalysisVarOriginKind_strings[RZ_ANALYSIS_VAR_ORIGIN_END] = {
 	"none", /* RZ_ANALYSIS_VAR_ORIGIN_NONE */
 	"DWARF", /* RZ_ANALYSIS_VAR_ORIGIN_DWARF */
+	"PDB", /* RZ_ANALYSIS_VAR_ORIGIN_PDB */
 };
 
 #define RZ_ANALYSIS_AS_STRING_IMPL(T, name, strings) \
@@ -2156,6 +2158,8 @@ RZ_API bool rz_analysis_function_is_malloc(const RzAnalysisFunction *fcn);
 /* PDB */
 RZ_API RzType *rz_type_db_pdb_parse(const RzTypeDB *typedb, RzPdbTpiStream *stream, RzPdbTpiType *type);
 RZ_API void rz_type_db_pdb_load(const RzTypeDB *typedb, const RzPdb *pdb);
+RZ_API bool rz_analysis_pdb_integrate_function(RZ_NONNULL RzAnalysis *analysis, RZ_NONNULL const RzPdb *pdb, ut64 baddr,
+	RZ_NONNULL RzAnalysisFunction *fcn);
 
 /* LUAC */
 RZ_API void rz_analysis_luac_integrate_functions(RzAnalysis *analysis);
