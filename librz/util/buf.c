@@ -413,6 +413,12 @@ RZ_API RZ_OWN RzBuffer *rz_buf_new_file(const char *file, int perm, int mode) {
  */
 RZ_API RZ_OWN RzBuffer *rz_buf_new_mmap(const char *filename, int perm, int mode, RZ_NULLABLE void /* RzIO */ *io) {
 	rz_return_val_if_fail(filename, NULL);
+#ifdef __EMSCRIPTEN__
+	// The mmap of Emscripten copies the whole file into the heap, so this reads the file in parts.
+	if ((perm & O_ACCMODE) == O_RDONLY) {
+		return rz_buf_new_file(filename, perm, mode);
+	}
+#endif
 
 	struct buf_mmap_user u = { 0 };
 	u.filename = filename;
