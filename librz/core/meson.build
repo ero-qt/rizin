@@ -3,6 +3,19 @@ core_plugins_list = [
   'dex',
 ]
 
+# only builds the plugins for x86 and ARM files into a WebAssembly module and leaves out the other plugins'
+# sources, which don't compile without their plugin in the list
+if host_machine.system() == 'emscripten'
+  core_dropped_sources = []
+  core_kept_plugins = []
+  foreach name : core_plugins_list
+    if name not in core_kept_plugins
+      core_dropped_sources += 'p/core_@0@.c'.format(name)
+    endif
+  endforeach
+  core_plugins_list = core_kept_plugins
+endif
+
 core_plugins = {
   'base_name': 'rz_core',
   'base_struct': 'RzCorePlugin',
@@ -178,6 +191,16 @@ rz_core_deps = [
   lrt,
   mth,
 ]
+
+if host_machine.system() == 'emscripten'
+  core_kept_sources = []
+  foreach source : rz_core_sources
+    if source not in core_dropped_sources
+      core_kept_sources += source
+    endif
+  endforeach
+  rz_core_sources = core_kept_sources
+endif
 
 rz_core = library('rz_core', rz_core_sources,
   include_directories: rz_core_inc,

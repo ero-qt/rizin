@@ -3,6 +3,19 @@ egg_plugins_list = [
   'xor',
 ]
 
+# only builds the plugins for x86 and ARM files into a WebAssembly module and leaves out the other plugins'
+# sources, which don't compile without their plugin in the list
+if host_machine.system() == 'emscripten'
+  egg_dropped_sources = []
+  egg_kept_plugins = []
+  foreach name : egg_plugins_list
+    if name not in egg_kept_plugins
+      egg_dropped_sources += 'p/egg_@0@.c'.format(name)
+    endif
+  endforeach
+  egg_plugins_list = egg_kept_plugins
+endif
+
 egg_plugins = {
   'base_name': 'rz_egg',
   'base_struct': 'RzEggPlugin',
@@ -20,6 +33,16 @@ rz_egg_sources = [
   'p/egg_exec.c',
   'p/egg_xor.c'
 ]
+
+if host_machine.system() == 'emscripten'
+  egg_kept_sources = []
+  foreach source : rz_egg_sources
+    if source not in egg_dropped_sources
+      egg_kept_sources += source
+    endif
+  endforeach
+  rz_egg_sources = egg_kept_sources
+endif
 
 rz_egg = library('rz_egg', rz_egg_sources,
   include_directories: [platform_inc],

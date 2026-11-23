@@ -117,25 +117,31 @@ libcapstone_c_args = [
   '-DCAPSTONE_USE_SYS_DYN_MEM',
   '-DCAPSTONE_DIET_NO',
   '-DCAPSTONE_HAS_AARCH64',
-  '-DCAPSTONE_HAS_ARC',
-  '-DCAPSTONE_HAS_ALPHA',
   '-DCAPSTONE_HAS_ARM',
-  '-DCAPSTONE_HAS_BPF',
-  '-DCAPSTONE_HAS_HPPA',
-  '-DCAPSTONE_HAS_LOONGARCH',
-  '-DCAPSTONE_HAS_M680X',
-  '-DCAPSTONE_HAS_M68K',
-  '-DCAPSTONE_HAS_MIPS',
-  '-DCAPSTONE_HAS_POWERPC',
-  '-DCAPSTONE_HAS_SPARC',
-  '-DCAPSTONE_HAS_SYSTEMZ',
-  '-DCAPSTONE_HAS_TMS320C64X',
-  '-DCAPSTONE_HAS_TRICORE',
-  '-DCAPSTONE_HAS_X86',
-  '-DCAPSTONE_HAS_XCORE',
-  '-DCAPSTONE_HAS_XTENSA',
-  '-DCAPSTONE_HAS_RISCV',
 ]
+
+# only builds the x86 and ARM disassemblers into a WebAssembly module
+if host_machine.system() != 'emscripten'
+  libcapstone_c_args += [
+    '-DCAPSTONE_HAS_ARC',
+    '-DCAPSTONE_HAS_ALPHA',
+    '-DCAPSTONE_HAS_BPF',
+    '-DCAPSTONE_HAS_HPPA',
+    '-DCAPSTONE_HAS_LOONGARCH',
+    '-DCAPSTONE_HAS_M680X',
+    '-DCAPSTONE_HAS_M68K',
+    '-DCAPSTONE_HAS_MIPS',
+    '-DCAPSTONE_HAS_POWERPC',
+    '-DCAPSTONE_HAS_SPARC',
+    '-DCAPSTONE_HAS_SYSTEMZ',
+    '-DCAPSTONE_HAS_TMS320C64X',
+    '-DCAPSTONE_HAS_TRICORE',
+    '-DCAPSTONE_HAS_X86',
+    '-DCAPSTONE_HAS_XCORE',
+    '-DCAPSTONE_HAS_XTENSA',
+    '-DCAPSTONE_HAS_RISCV',
+  ]
+endif
 
 if meson.get_compiler('c').has_argument('-Wmaybe-uninitialized')
   libcapstone_c_args += '-Wno-maybe-uninitialized'

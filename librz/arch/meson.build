@@ -518,6 +518,19 @@ arch_common_includes = [
   '.',
 ]
 
+# only builds the plugins for x86 and ARM files into a WebAssembly module and leaves out the other plugins'
+# sources, which don't compile without their plugin in the list
+if host_machine.system() == 'emscripten'
+  arch_dropped_sources = []
+  arch_kept_plugins = ['null', 'x86_zydis', 'arm_cs']
+  foreach name : arch_plugins_list
+    if name not in arch_kept_plugins
+      arch_dropped_sources += 'p/arch_@0@.c'.format(name)
+    endif
+  endforeach
+  arch_plugins_list = arch_kept_plugins
+endif
+
 arch_plugins = {
   'base_name': 'rz_arch',
   'base_struct': 'RzArchPlugin',
@@ -528,6 +541,16 @@ rz_arch_inc = [
   platform_inc,
   include_directories(arch_isa_includes + arch_common_includes)
 ]
+
+if host_machine.system() == 'emscripten'
+  arch_kept_sources = []
+  foreach source : arch_plugin_sources
+    if source not in arch_dropped_sources
+      arch_kept_sources += source
+    endif
+  endforeach
+  arch_plugin_sources = arch_kept_sources
+endif
 
 rz_arch_sources = arch_isa_sources + arch_il_sources + arch_esil_sources + arch_plugin_sources + arch_common_sources
 

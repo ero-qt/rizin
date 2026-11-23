@@ -37,6 +37,19 @@ if host_machine.system() == 'windows'
   ]
 endif
 
+# only builds the plugins for x86 and ARM files into a WebAssembly module and leaves out the other plugins'
+# sources, which don't compile without their plugin in the list
+if host_machine.system() == 'emscripten'
+  io_dropped_sources = []
+  io_kept_plugins = ['default', 'fd', 'malloc', 'null', 'sparse']
+  foreach name : io_plugins_list
+    if name not in io_kept_plugins
+      io_dropped_sources += 'p/io_@0@.c'.format(name)
+    endif
+  endforeach
+  io_plugins_list = io_kept_plugins
+endif
+
 io_plugins = {
   'base_name': 'rz_io',
   'base_struct': 'RzIOPlugin',
@@ -123,6 +136,16 @@ endif
 
 if use_ptrace_wrap
   rz_io_deps += dependency('ptrace-wrap', default_options: ['is_static_build=' + is_static_build.to_string()])
+endif
+
+if host_machine.system() == 'emscripten'
+  io_kept_sources = []
+  foreach source : rz_io_sources
+    if source not in io_dropped_sources
+      io_kept_sources += source
+    endif
+  endforeach
+  rz_io_sources = io_kept_sources
 endif
 
 rz_io = library('rz_io', rz_io_sources,

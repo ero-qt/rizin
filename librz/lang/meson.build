@@ -9,6 +9,11 @@ if host_machine.system() != 'windows'
   ]
 endif
 
+# only builds the plugins for x86 and ARM files into a WebAssembly module
+if host_machine.system() == 'emscripten'
+  lang_plugins_list = []
+endif
+
 lang_plugins = {
   'base_name': 'rz_lang',
   'base_struct': 'RzLangPlugin',

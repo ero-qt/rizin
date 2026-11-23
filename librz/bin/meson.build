@@ -71,11 +71,34 @@ bin_xtr_plugins_list = [
   # 'pemixed',
 ]
 
+# only builds the plugins for x86 and ARM files into a WebAssembly module and leaves out the other plugins'
+# sources, which don't compile without their plugin in the list
+if host_machine.system() == 'emscripten'
+  bin_dropped_sources = []
+  bin_kept_plugins = ['any', 'elf', 'elf64', 'mach0', 'mach064', 'pe', 'pe64', 'mz', 'te', 'coff', 'symbols']
+  foreach name : bin_plugins_list
+    if name not in bin_kept_plugins
+      bin_dropped_sources += 'p/bin_@0@.c'.format(name)
+    endif
+  endforeach
+  bin_plugins_list = bin_kept_plugins
+endif
+
 bin_plugins = {
   'base_name': 'rz_bin',
   'base_struct': 'RzBinPlugin',
   'list': bin_plugins_list,
 }
+
+if host_machine.system() == 'emscripten'
+  bin_xtr_kept_plugins = ['fatmach0']
+  foreach name : bin_xtr_plugins_list
+    if name not in bin_xtr_kept_plugins
+      bin_dropped_sources += 'p/bin_xtr_@0@.c'.format(name)
+    endif
+  endforeach
+  bin_xtr_plugins_list = bin_xtr_kept_plugins
+endif
 
 bin_xtr_plugins = {
   'base_name': 'rz_bin_xtr',
@@ -330,6 +353,16 @@ rz_bin_sources = [
 ]
 
 rz_bin_inc = [platform_inc, include_directories('format')]
+
+if host_machine.system() == 'emscripten'
+  bin_kept_sources = []
+  foreach source : rz_bin_sources
+    if source not in bin_dropped_sources
+      bin_kept_sources += source
+    endif
+  endforeach
+  rz_bin_sources = bin_kept_sources
+endif
 
 rz_bin = library('rz_bin', rz_bin_sources,
   include_directories: rz_bin_inc,
