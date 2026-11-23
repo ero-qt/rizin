@@ -326,6 +326,27 @@ static RzBinElfSection convert_elf_section(ELFOBJ *bin, RzBinObjectLoadOptions *
 	return section;
 }
 
+/**
+ * \brief Give each allocated SHT_NOBITS section of a relocatable file its own addresses after the end of the file
+ *
+ * A relocatable file places its sections at their file offsets, but a SHT_NOBITS section like `.bss` takes no space in
+ * the file, so its offset is the offset of the next section and its symbols would overlap that section.
+ */
+static void place_nobits_sections(ELFOBJ *bin, RzVector /*<RzBinElfSection>*/ *sections) {
+	ut64 next = bin->baddr + bin->size;
+	RzBinElfSection *section;
+	rz_vector_foreach (sections, section) {
+		if (section->type != SHT_NOBITS || !(section->flags & SHF_ALLOC)) {
+			continue;
+		}
+		if (section->align > 1) {
+			next += rz_num_align_delta(next, section->align);
+		}
+		section->rva = next;
+		next += section->size;
+	}
+}
+
 static RzVector /*<RzBinElfSection>*/ *convert_sections_from_shdr(ELFOBJ *bin, RzBinObjectLoadOptions *options, RzVector /*<Elf_(Shdr)>*/ *sections) {
 	if (!sections) {
 		return NULL;
@@ -344,6 +365,10 @@ static RzVector /*<RzBinElfSection>*/ *convert_sections_from_shdr(ELFOBJ *bin, R
 			rz_vector_free(result);
 			return NULL;
 		}
+	}
+
+	if (Elf_(rz_bin_elf_is_relocatable)(bin)) {
+		place_nobits_sections(bin, result);
 	}
 
 	return result;

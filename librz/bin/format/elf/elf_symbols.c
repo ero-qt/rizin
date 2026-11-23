@@ -221,7 +221,10 @@ static bool convert_elf_symbol_entry(ELFOBJ *bin, struct symbols_segment *segmen
 		elf_symbol->paddr = elf_symbol->vaddr = UT64_MAX;
 	} else {
 		const ut32 scale = Elf_(rz_bin_elf_addr_scale)(bin);
-		if (Elf_(rz_bin_elf_is_relocatable)(bin) && section) {
+		if (Elf_(rz_bin_elf_is_relocatable)(bin) && section && section->type == SHT_NOBITS) {
+			elf_symbol->paddr = UT64_MAX;
+			elf_symbol->vaddr = section->rva + (ut64)symbol->st_value * scale;
+		} else if (Elf_(rz_bin_elf_is_relocatable)(bin) && section) {
 			elf_symbol->paddr = section->offset + (ut64)symbol->st_value * scale;
 			elf_symbol->vaddr = Elf_(rz_bin_elf_p2v)(bin, elf_symbol->paddr);
 		} else {
