@@ -2117,6 +2117,16 @@ static bool dwarf_integrate_function(void *user, const ut64 k, const void *value
 }
 
 /**
+ * \brief Use parsed DWARF function info in the analysis of the function at its low address
+ * \param analysis The analysis
+ * \param dw_fn The DWARF function
+ */
+RZ_API void rz_analysis_dwarf_integrate_function(RZ_NONNULL RzAnalysis *analysis, RZ_NONNULL const RzAnalysisDwarfFunction *dw_fn) {
+	rz_return_if_fail(analysis && dw_fn);
+	dwarf_integrate_function(analysis, dw_fn->low_pc, dw_fn);
+}
+
+/**
  * \brief Use parsed DWARF function info in the function analysis
  * \param analysis The analysis
  * \param flags The flags
