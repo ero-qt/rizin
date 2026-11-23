@@ -2855,6 +2855,25 @@ static void patch_reloc_ppc64(RZ_INOUT RzBuffer *buf_patched, const ut64 patch_a
 }
 
 /**
+ * \brief Turn a `mov` that loads an address from the GOT into a `lea` of that address
+ *
+ * A linker relaxes a GOT load of a symbol like this when the symbol needs no GOT entry. An object file has no GOT, so
+ * this keeps the load pointing at its symbol.
+ *
+ * \param buf_patched Buffer from which the opcode is read and the patched opcode is written to.
+ * \param patch_addr The address of the relocated field, which follows the opcode and its ModRM byte.
+ * \return Whether the opcode was a `mov` and is now a `lea`.
+ */
+static bool relax_got_load(RZ_INOUT RzBuffer *buf_patched, const ut64 patch_addr) {
+	ut8 opcode;
+	if (patch_addr < 2 || rz_buf_read_at(buf_patched, patch_addr - 2, &opcode, 1) != 1 || opcode != 0x8b) {
+		return false;
+	}
+	opcode = 0x8d;
+	return rz_buf_write_at(buf_patched, patch_addr - 2, &opcode, 1) == 1;
+}
+
+/**
  * \brief Patches the opcode at a given address depending on the relocation type.
  *
  * NOTE: Some relocation symbols are not yet implemented
@@ -2899,8 +2918,13 @@ static void patch_reloc_x86_32(RZ_INOUT RzBuffer *buf_patched, const ut64 patch_
 	case R_386_PC8:
 		val = fs->S + addend - fs->P;
 		break;
-	case R_386_GOT32:
 	case R_386_GOT32X:
+		if (fs->G == UT64_MAX && relax_got_load(buf_patched, patch_addr)) {
+			val = fs->S + addend - fs->GOT;
+			break;
+		}
+		/* fall thru */
+	case R_386_GOT32:
 		if (fs->G == UT64_MAX) {
 			return;
 		}
@@ -3016,11 +3040,16 @@ static void patch_reloc_x86_64(RZ_INOUT RzBuffer *buf_patched, const ut64 patch_
 		word = 8;
 		val = fs->G + fs->GOT + fs->A - fs->P;
 		break;
-	case R_X86_64_GOTPCREL:
-		/* fall thru */
 	case R_X86_64_GOTPCRELX:
 		/* fall thru */
 	case R_X86_64_REX_GOTPCRELX:
+		if (fs->G == UT64_MAX && relax_got_load(buf_patched, patch_addr)) {
+			word = 4;
+			val = fs->S + fs->A - fs->P;
+			break;
+		}
+		/* fall thru */
+	case R_X86_64_GOTPCREL:
 		/* fall thru */
 	case R_X86_64_CODE_4_GOTPCRELX:
 		/* fall thru */
