@@ -438,7 +438,12 @@ foreach it : ccs
   # required for linux
   it_utl = it_cc.find_library('util', required: false, static: is_static_build)
   it_ldl = it_cc.find_library('dl', required: false, static: is_static_build)
-  it_th = dependency('threads', required: false, static: is_static_build, native: it_native)
+  # Emscripten links a module with threads only with shared memory, which a single-threaded module doesn't have
+  if it_machine.system() == 'emscripten'
+    it_th = dependency('', required: false)
+  else
+    it_th = dependency('threads', required: false, static: is_static_build, native: it_native)
+  endif
   have_pthread = it_th.found() and it_machine.system() != 'windows'
   if it_machine.system() == 'sunos'
     # workaround for Solaris until https://github.com/mesonbuild/meson/issues/4328 is fixed
@@ -566,6 +571,8 @@ foreach it : ccs
   it_userconf.set10('IS_IOS', is_ios)
   message('IS_IOS: @0@'.format(is_ios))
 
+  # Emscripten's libc has these functions, but they always fail in a browser
+  emscripten_stubs = it_machine.system() == 'emscripten' ? ['fork', 'openpty', 'forkpty', 'login_tty'] : []
   foreach item : [
       ['arc4random', '#include <stdlib.h>', []],
       ['arc4random_uniform', '#include <stdlib.h>', []],
@@ -605,7 +612,7 @@ foreach it : ccs
       ['_aligned_malloc', '#include <malloc.h>', []],
     ]
     func = item[0]
-    ok = it_cc.has_function(func, prefix: item[1], dependencies: item[2])
+    ok = func not in emscripten_stubs and it_cc.has_function(func, prefix: item[1], dependencies: item[2])
     it_userconf.set10('HAVE_@0@'.format(func.to_upper()), ok)
   endforeach
 
@@ -835,6 +842,7 @@ if not libzstd_dep.found()
   zstd_proj = subproject('zstd', default_options: [
       'default_library=static',
       'static_runtime=@0@'.format(is_static_build),
+      'multi_thread=@0@'.format(host_machine.system() == 'emscripten' ? 'disabled' : 'enabled'),
   ])
   libzstd_dep = zstd_proj.get_variable('libzstd_dep')
   meson.override_dependency('zstd', libzstd_dep)
